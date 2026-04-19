@@ -63,6 +63,11 @@ pub use types::{
     ChargeFlowResponse, OTPLog,
 };
 
+pub use types::{
+    MerchantProfile, UpdateProfileInput,
+    WebhookConfig, WebhookTestResult,
+};
+
 // Re-export the most commonly used items at the crate root
 // so callers can do `use payfake::Client` instead of
 // `use payfake::client::Client`. Convenience re-exports

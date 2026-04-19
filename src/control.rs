@@ -265,4 +265,45 @@ impl ControlNamespace {
 
         Ok(data.otp_logs)
     }
+
+
+    /// List transactions — JWT authenticated, for the dashboard.
+    /// Supports status filter and search by reference or customer email.
+    pub async fn list_transactions(
+        &self,
+        token: &str,
+        page: i32,
+        per_page: i32,
+        status: Option<&str>,
+        search: Option<&str>,
+    ) -> Result<crate::types::TransactionList, PayfakeError> {
+        let mut path = format!(
+            "/api/v1/control/transactions?page={}&per_page={}",
+            page, per_page
+        );
+        if let Some(s) = status {
+            path.push_str(&format!("&status={}", s));
+        }
+        if let Some(q) = search {
+            path.push_str(&format!("&search={}", q));
+        }
+        self.inner.request::<serde_json::Value, crate::types::TransactionList>(
+            Method::GET, &path, None, Some(token),
+        ).await
+    }
+
+    /// List customers — JWT authenticated, for the dashboard.
+    pub async fn list_customers(
+        &self,
+        token: &str,
+        opts: crate::types::ListOptions,
+    ) -> Result<crate::types::CustomerList, PayfakeError> {
+        let path = format!(
+            "/api/v1/control/customers?page={}&per_page={}",
+            opts.page, opts.per_page
+        );
+        self.inner.request::<serde_json::Value, crate::types::CustomerList>(
+            Method::GET, &path, None, Some(token),
+        ).await
+    }
 }

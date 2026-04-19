@@ -463,3 +463,38 @@ pub struct OTPLog {
     pub expires_at: String,
     pub created_at: String,
 }
+
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MerchantProfile {
+    pub id: String,
+    pub business_name: String,
+    pub email: String,
+    pub public_key: String,
+    #[serde(default)]
+    pub webhook_url: String,
+    pub is_active: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Default)]
+pub struct UpdateProfileInput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub business_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub webhook_url: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WebhookConfig {
+    pub webhook_url: String,
+    pub is_set: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WebhookTestResult {
+    pub webhook_url: String,
+    pub success: bool,
+    pub status_code: i32,
+}

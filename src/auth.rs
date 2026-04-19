@@ -74,4 +74,47 @@ impl AuthNamespace {
             )
             .await
     }
+
+    /// Get full merchant profile.
+    pub async fn get_profile(&self, token: &str) -> Result<MerchantProfile, PayfakeError> {
+        self.inner.request::<serde_json::Value, MerchantProfile>(
+            Method::GET, "/api/v1/merchant", None, Some(token),
+        ).await
+    }
+
+    /// Update merchant business name and/or webhook URL.
+    pub async fn update_profile(
+        &self,
+        token: &str,
+        input: UpdateProfileInput,
+    ) -> Result<MerchantProfile, PayfakeError> {
+        self.inner.request::<_, MerchantProfile>(
+            Method::PUT, "/api/v1/merchant", Some(&input), Some(token),
+        ).await
+    }
+
+    /// Get current webhook URL and config.
+    pub async fn get_webhook_url(&self, token: &str) -> Result<WebhookConfig, PayfakeError> {
+        self.inner.request::<serde_json::Value, WebhookConfig>(
+            Method::GET, "/api/v1/merchant/webhook", None, Some(token),
+        ).await
+    }
+
+    /// Set webhook URL.
+    pub async fn update_webhook_url(&self, token: &str, webhook_url: &str) -> Result<(), PayfakeError> {
+        #[derive(serde::Serialize)]
+        struct Input<'a> { webhook_url: &'a str }
+        self.inner.request::<_, serde_json::Value>(
+            Method::POST, "/api/v1/merchant/webhook",
+            Some(&Input { webhook_url }), Some(token),
+        ).await?;
+        Ok(())
+    }
+
+    /// Fire a test webhook. Rate limited to 5 per minute per merchant.
+    pub async fn test_webhook(&self, token: &str) -> Result<WebhookTestResult, PayfakeError> {
+        self.inner.request::<serde_json::Value, WebhookTestResult>(
+            Method::POST, "/api/v1/merchant/webhook/test", None, Some(token),
+        ).await
+    }
 }
