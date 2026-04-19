@@ -498,3 +498,64 @@ pub struct WebhookTestResult {
     pub success: bool,
     pub status_code: i32,
 }
+
+
+/// Charge state embedded in public transaction responses.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct PublicChargeStatus {
+    #[serde(default)]
+    pub flow_status: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub error_code: String,
+    #[serde(default)]
+    pub channel: String,
+}
+
+/// Merchant summary embedded in public transaction response.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct PublicMerchant {
+    pub business_name: String,
+    pub public_key: String,
+}
+
+/// Customer summary embedded in public transaction response.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct PublicCustomer {
+    #[serde(default)]
+    pub email: String,
+    #[serde(default)]
+    pub first_name: String,
+    #[serde(default)]
+    pub last_name: String,
+}
+
+/// Returned by GET /public/transaction/:access_code.
+/// Contains everything the checkout page needs on mount.
+#[derive(Debug, Deserialize)]
+pub struct PublicTransactionResponse {
+    pub amount: i64,
+    pub currency: String,
+    pub status: String,
+    pub reference: String,
+    #[serde(default)]
+    pub callback_url: String,
+    #[serde(default)]
+    pub access_code: String,
+    pub merchant: PublicMerchant,
+    pub customer: PublicCustomer,
+    pub charge: Option<PublicChargeStatus>,
+}
+
+/// Returned by GET /public/transaction/verify/:reference.
+/// Used for MoMo polling — check status and charge.flow_status each tick.
+#[derive(Debug, Deserialize)]
+pub struct PublicVerifyResponse {
+    pub status: String,
+    pub reference: String,
+    pub amount: i64,
+    pub currency: String,
+    pub paid_at: Option<String>,
+    pub charge: Option<PublicChargeStatus>,
+}

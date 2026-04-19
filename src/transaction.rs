@@ -98,4 +98,54 @@ impl TransactionNamespace {
             )
             .await
     }
+
+    /// Load transaction details for the checkout page.
+    /// No secret key required — authenticated via access code in the URL.
+    /// Returns amount, currency, merchant branding, customer email
+    /// and current charge flow status.
+    ///
+    /// Call on checkout page mount to hydrate the payment form.
+    ///
+    /// ```rust
+    /// let tx = client.transaction.public_fetch(&access_code).await?;
+    /// println!("Pay {} {} {:.2}", tx.merchant_name, tx.currency, tx.amount as f64 / 100.0);
+    /// ```
+    pub async fn public_fetch(
+        &self,
+        access_code: &str,
+    ) -> Result<PublicTransactionResponse, PayfakeError> {
+        let path = format!("/api/v1/public/transaction/{}", access_code);
+        self.inner.request::<serde_json::Value, PublicTransactionResponse>(
+            Method::GET,
+            &path,
+            None,
+            None,
+        ).await
+    }
+
+    /// Poll transaction status for MoMo pay_offline state.
+    /// No secret key required.
+    /// Stop polling when status is "success" or "failed".
+    ///
+    /// ```rust
+    /// loop {
+    ///     let result = client.transaction.public_verify(&reference).await?;
+    ///     if result.status == "success" || result.status == "failed" {
+    ///         break;
+    ///     }
+    ///     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    /// }
+    /// ```
+    pub async fn public_verify(
+        &self,
+        reference: &str,
+    ) -> Result<PublicVerifyResponse, PayfakeError> {
+        let path = format!("/api/v1/public/transaction/verify/{}", reference);
+        self.inner.request::<serde_json::Value, PublicVerifyResponse>(
+            Method::GET,
+            &path,
+            None,
+            None,
+        ).await
+    }
 }

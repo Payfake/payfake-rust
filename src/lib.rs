@@ -68,6 +68,11 @@ pub use types::{
     WebhookConfig, WebhookTestResult,
 };
 
+pub use types::{
+    PublicTransactionResponse, PublicVerifyResponse,
+    PublicChargeStatus, PublicMerchant, PublicCustomer,
+};
+
 // Re-export the most commonly used items at the crate root
 // so callers can do `use payfake::Client` instead of
 // `use payfake::client::Client`. Convenience re-exports
