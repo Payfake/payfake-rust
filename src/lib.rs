@@ -51,6 +51,18 @@ pub mod errors;
 pub mod transaction;
 pub mod types;
 
+pub use types::{
+    InitializeInput, InitializeResponse,
+    ChargeCardInput, ChargeMomoInput, ChargeBankInput,
+    CreateCustomerInput, UpdateCustomerInput,
+    UpdateScenarioInput, ForceTransactionInput,
+    ListOptions,
+    // new v0.2.0
+    SubmitPINInput, SubmitOTPInput, SubmitBirthdayInput,
+    SubmitAddressInput, ResendOTPInput,
+    ChargeFlowResponse, OTPLog,
+};
+
 // Re-export the most commonly used items at the crate root
 // so callers can do `use payfake::Client` instead of
 // `use payfake::client::Client`. Convenience re-exports

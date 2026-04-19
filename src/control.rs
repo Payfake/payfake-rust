@@ -224,4 +224,45 @@ impl ControlNamespace {
             .await?;
         Ok(())
     }
+
+    /// Fetch OTP codes generated during charge flows.
+    /// Pass Some(reference) to filter for a specific transaction.
+    ///
+    /// This is the primary way to read OTPs during testing without a real phone:
+    ///
+    /// EXAMPLE:
+    /// let logs = client.control.get_otp_logs(&token, Some("TXN_xxx"), ListOptions::default()).await?;
+    /// let otp = &logs[0].otp_code;
+    ///
+    pub async fn get_otp_logs(
+        &self,
+        token: &str,
+        reference: Option<&str>,
+        opts: ListOptions,
+    ) -> Result<Vec<crate::types::OTPLog>, PayfakeError> {
+        #[derive(serde::Deserialize)]
+        struct OTPLogsData {
+            otp_logs: Vec<crate::types::OTPLog>,
+        }
+
+        let path = if let Some(r) = reference {
+            format!("/api/v1/control/otp-logs?reference={}", r)
+        } else {
+            format!(
+                "/api/v1/control/otp-logs?page={}&per_page={}",
+                opts.page, opts.per_page
+            )
+        };
+
+        let data = self.inner
+            .request::<serde_json::Value, OTPLogsData>(
+                Method::GET,
+                &path,
+                None,
+                Some(token),
+            )
+            .await?;
+
+        Ok(data.otp_logs)
+    }
 }

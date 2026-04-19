@@ -51,42 +51,53 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // STEP 5: Initialize a transaction
+    // ── Full local card flow ──────────────────────────────────────
     let tx = client.transaction.initialize(InitializeInput {
         email: "customer@example.com".to_string(),
         amount: 10000,
         currency: Some("GHS".to_string()),
         ..Default::default()
     }).await?;
+    println!("Reference: {}", tx.reference);
 
-    println!("\nTransaction initialized");
-    println!("Reference:   {}", tx.reference);
-    println!("Access code: {}", tx.access_code);
-    println!("Auth URL:    {}", tx.authorization_url);
-
-    // STEP 6: Charge a card
-    match client.charge.card(ChargeCardInput {
+    // Step 1 — local Verve card → send_pin
+    let step1 = client.charge.card(ChargeCardInput {
         access_code: Some(tx.access_code.clone()),
-        card_number: "4111111111111111".to_string(),
+        card_number: "5061000000000000".to_string(), // Verve — local card
         card_expiry: "12/26".to_string(),
         cvv: "123".to_string(),
         email: "customer@example.com".to_string(),
         ..Default::default()
-    }).await {
-        Ok(charge) => {
-            println!("\nCharge status: {}", charge.transaction.status);
-        }
-        Err(e) if e.is_code(codes::CHARGE_FAILED) => {
-            println!("\nCharge failed — check scenario config");
-            if let Some(field) = e.fields().first() {
-                println!("Reason: {}", field.message);
-            }
-        }
-        Err(e) => return Err(e.into()),
-    }
+    }).await?;
+    println!("Step 1: {}", step1.status); // send_pin
 
-    // STEP 7: Verify transaction
+    // Step 2 — submit PIN → send_otp
+    let step2 = client.charge.submit_pin(SubmitPINInput {
+        reference: tx.reference.clone(),
+        pin: "1234".to_string(),
+    }).await?;
+    println!("Step 2: {}", step2.status); // send_otp
+
+    // Step 3 — read OTP from logs
+    let otp_logs = client.control.get_otp_logs(
+        &token,
+        Some(&tx.reference),
+        ListOptions::default(),
+    ).await?;
+    let otp_code = otp_logs.first()
+        .map(|l| l.otp_code.clone())
+        .unwrap_or_default();
+    println!("OTP: {}", otp_code);
+
+    // Step 4 — submit OTP → success
+    let step3 = client.charge.submit_otp(SubmitOTPInput {
+        reference: tx.reference.clone(),
+        otp: otp_code,
+    }).await?;
+    println!("Step 3: {}", step3.status); // success
+
     let verified = client.transaction.verify(&tx.reference).await?;
-    println!("Verified status: {}", verified.status);
+    println!("Verified: {}", verified.status);
 
     // STEP 8: Mobile Money flow
     let tx2 = client.transaction.initialize(InitializeInput {

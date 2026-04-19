@@ -373,3 +373,93 @@ pub struct RequestLog {
     pub request_id: String,
     pub logged_at: String,
 }
+
+
+
+//
+// Charge flow v0.2.0
+//
+
+/// Input for submitting a card PIN.
+#[derive(Debug, Serialize, Default)]
+pub struct SubmitPINInput {
+    pub reference: String,
+    pub pin: String,
+}
+
+/// Input for submitting an OTP.
+/// Works for card, MoMo and bank flows.
+#[derive(Debug, Serialize, Default)]
+pub struct SubmitOTPInput {
+    pub reference: String,
+    pub otp: String,
+}
+
+/// Input for submitting a date of birth.
+#[derive(Debug, Serialize, Default)]
+pub struct SubmitBirthdayInput {
+    pub reference: String,
+    /// Format: YYYY-MM-DD
+    pub birthday: String,
+}
+
+/// Input for submitting a billing address.
+#[derive(Debug, Serialize, Default)]
+pub struct SubmitAddressInput {
+    pub reference: String,
+    pub address: String,
+    pub city: String,
+    pub state: String,
+    pub zip_code: String,
+    pub country: String,
+}
+
+/// Input for requesting a new OTP.
+#[derive(Debug, Serialize, Default)]
+pub struct ResendOTPInput {
+    pub reference: String,
+}
+
+/// Returned by every charge step endpoint.
+/// Read status to decide what the checkout page renders next.
+///
+/// Status values:
+/// - `send_pin`      → show PIN input form
+/// - `send_otp`      → show OTP input form
+/// - `send_birthday` → show date of birth form
+/// - `send_address`  → show address form
+/// - `open_url`      → navigate to three_ds_url
+/// - `pay_offline`   → show approve on phone screen, poll transaction
+/// - `success`       → show success screen
+/// - `failed`        → show failure screen
+#[derive(Debug, Deserialize)]
+pub struct ChargeFlowResponse {
+    pub status: String,
+    pub reference: String,
+    #[serde(default)]
+    pub display_text: String,
+    /// Populated only when status is "open_url".
+    /// Navigate to this URL in the checkout app's 3DS page.
+    #[serde(default)]
+    pub three_ds_url: String,
+    pub transaction: Option<Transaction>,
+    pub charge: Option<ChargeData>,
+}
+
+/// A generated OTP stored for developer inspection.
+/// OTPs are never returned in API responses — read them here
+/// during testing instead of needing a real phone.
+#[derive(Debug, Clone, Deserialize)]
+pub struct OTPLog {
+    pub id: String,
+    pub merchant_id: String,
+    pub reference: String,
+    pub channel: String,
+    /// The actual OTP code, use this in submit_otp during testing.
+    pub otp_code: String,
+    pub step: String,
+    /// True if this OTP was successfully submitted.
+    pub used: bool,
+    pub expires_at: String,
+    pub created_at: String,
+}
