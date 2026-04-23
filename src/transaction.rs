@@ -1,138 +1,91 @@
-use std::sync::Arc;
 use reqwest::Method;
+use std::sync::Arc;
 
-use crate::client::ClientInner;
+use crate::client::Inner;
 use crate::errors::PayfakeError;
 use crate::types::{
-    InitializeInput, InitializeResponse,
-    Transaction, TransactionList, ListOptions,
+    InitializeInput, InitializeResponse, PublicTransactionResponse, PublicVerifyResponse,
+    Transaction, TransactionList,
 };
 
-/// Wraps the /transaction endpoints.
-/// All methods require the secret key set on the client.
-pub struct TransactionNamespace {
-    inner: Arc<ClientInner>,
-}
+/// Wraps /transaction endpoints.
+/// Matches https://api.paystack.co/transaction exactly.
+/// Auth: Bearer sk_test_xxx
+pub struct TransactionNamespace(pub(crate) Arc<Inner>);
 
 impl TransactionNamespace {
-    pub(crate) fn new(inner: Arc<ClientInner>) -> Self {
-        Self { inner }
-    }
-
     /// Create a new pending transaction.
-    /// Returns the authorization URL for the payment popup and the
-    /// access code the popup uses to identify the transaction.
-    ///
-    /// No money moves here, this just creates the record and
-    /// returns the tokens the frontend needs to open the popup.
+    /// Returns authorization_url, access_code and reference.
     pub async fn initialize(
         &self,
         input: InitializeInput,
     ) -> Result<InitializeResponse, PayfakeError> {
-        self.inner
-            .request::<_, InitializeResponse>(
-                Method::POST,
-                "/api/v1/transaction/initialize",
-                Some(&input),
-                None,
-            )
+        self.0
+            .do_sk(Method::POST, "/transaction/initialize", Some(&input))
             .await
     }
 
     /// Verify a transaction by reference.
-    /// Call this after the payment popup closes to confirm the outcome.
-    /// A status of "success" means the charge went through.
+    /// Always call this before delivering value.
     pub async fn verify(&self, reference: &str) -> Result<Transaction, PayfakeError> {
-        let path = format!("/api/v1/transaction/verify/{}", reference);
-        self.inner
-            .request::<serde_json::Value, Transaction>(
-                Method::GET,
-                &path,
-                None,
-                None,
-            )
+        let path = format!("/transaction/verify/{}", reference);
+        self.0
+            .do_sk::<serde_json::Value, _>(Method::GET, &path, None)
             .await
     }
 
-    /// Fetch a single transaction by ID.
-    pub async fn get(&self, id: &str) -> Result<Transaction, PayfakeError> {
-        let path = format!("/api/v1/transaction/{}", id);
-        self.inner
-            .request::<serde_json::Value, Transaction>(
-                Method::GET,
-                &path,
-                None,
-                None,
-            )
+    /// Fetch a transaction by ID.
+    pub async fn fetch(&self, id: &str) -> Result<Transaction, PayfakeError> {
+        let path = format!("/transaction/{}", id);
+        self.0
+            .do_sk::<serde_json::Value, _>(Method::GET, &path, None)
             .await
     }
 
-    /// List transactions with optional pagination.
-    /// Defaults to page=1, per_page=50.
-    pub async fn list(&self, opts: ListOptions) -> Result<TransactionList, PayfakeError> {
-        let path = format!(
-            "/api/v1/transaction?page={}&per_page={}",
-            opts.page, opts.per_page
-        );
-        self.inner
-            .request::<serde_json::Value, TransactionList>(
-                Method::GET,
-                &path,
-                None,
-                None,
-            )
+    /// List transactions with pagination.
+    /// status: "success" | "failed" | "pending" | "abandoned"
+    pub async fn list(
+        &self,
+        page: i32,
+        per_page: i32,
+        status: Option<&str>,
+    ) -> Result<TransactionList, PayfakeError> {
+        let mut path = format!("/transaction?page={}&perPage={}", page, per_page);
+        if let Some(s) = status {
+            path.push_str(&format!("&status={}", s));
+        }
+        self.0
+            .do_sk::<serde_json::Value, _>(Method::GET, &path, None)
             .await
     }
 
-    /// Refund a successful transaction.
-    /// Only transactions with status "success" can be refunded.
-    /// Returns the updated transaction with status "reversed".
+    /// Refund (reverse) a successful transaction.
     pub async fn refund(&self, id: &str) -> Result<Transaction, PayfakeError> {
-        let path = format!("/api/v1/transaction/{}/refund", id);
-        self.inner
-            .request::<serde_json::Value, Transaction>(
-                Method::POST,
-                &path,
-                None,
-                None,
-            )
+        let path = format!("/transaction/{}/refund", id);
+        self.0
+            .do_sk::<serde_json::Value, _>(Method::POST, &path, None)
             .await
     }
 
-    /// Load transaction details for the checkout page.
-    /// No secret key required — authenticated via access code in the URL.
-    /// Returns amount, currency, merchant branding, customer email
-    /// and current charge flow status.
-    ///
-    /// Call on checkout page mount to hydrate the payment form.
-    ///
-    /// ```rust
-    /// let tx = client.transaction.public_fetch(&access_code).await?;
-    /// println!("Pay {} {} {:.2}", tx.merchant_name, tx.currency, tx.amount as f64 / 100.0);
-    /// ```
+    /// Load transaction details for the checkout page using the access code.
+    /// No secret key required. Call this on checkout page mount.
     pub async fn public_fetch(
         &self,
         access_code: &str,
     ) -> Result<PublicTransactionResponse, PayfakeError> {
         let path = format!("/api/v1/public/transaction/{}", access_code);
-        self.inner.request::<serde_json::Value, PublicTransactionResponse>(
-            Method::GET,
-            &path,
-            None,
-            None,
-        ).await
+        self.0
+            .do_public::<serde_json::Value, _>(Method::GET, &path, None)
+            .await
     }
 
     /// Poll transaction status for MoMo pay_offline state.
-    /// No secret key required.
-    /// Stop polling when status is "success" or "failed".
+    /// No secret key required. Poll every 3 seconds until status is success or failed.
     ///
     /// ```rust
     /// loop {
-    ///     let result = client.transaction.public_verify(&reference).await?;
-    ///     if result.status == "success" || result.status == "failed" {
-    ///         break;
-    ///     }
+    ///     let r = client.transaction.public_verify(&reference).await?;
+    ///     if r.status == "success" || r.status == "failed" { break; }
     ///     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
     /// }
     /// ```
@@ -141,11 +94,8 @@ impl TransactionNamespace {
         reference: &str,
     ) -> Result<PublicVerifyResponse, PayfakeError> {
         let path = format!("/api/v1/public/transaction/verify/{}", reference);
-        self.inner.request::<serde_json::Value, PublicVerifyResponse>(
-            Method::GET,
-            &path,
-            None,
-            None,
-        ).await
+        self.0
+            .do_public::<serde_json::Value, _>(Method::GET, &path, None)
+            .await
     }
 }

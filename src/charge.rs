@@ -1,114 +1,69 @@
-use std::sync::Arc;
 use reqwest::Method;
+use std::sync::Arc;
 
-use crate::client::ClientInner;
+use crate::client::Inner;
 use crate::errors::PayfakeError;
 use crate::types::{
-    ChargeCardInput, ChargeMomoInput, ChargeBankInput,
-    ChargeFlowResponse, ChargeData,
-    SubmitPINInput, SubmitOTPInput, SubmitBirthdayInput,
-    SubmitAddressInput, ResendOTPInput,
+    ChargeBankInput, ChargeCardInput, ChargeFlowResponse, ChargeMomoInput, ResendOTPInput,
+    SubmitAddressInput, SubmitBirthdayInput, SubmitOTPInput, SubmitPINInput,
 };
 
-/// Wraps all charge flow endpoints.
-/// Every method returns ChargeFlowResponse, read status to determine next step.
-pub struct ChargeNamespace {
-    inner: Arc<ClientInner>,
-}
+/// Wraps /charge endpoints.
+/// Matches https://api.paystack.co/charge exactly.
+/// All methods call POST /charge, channel detected from body object.
+/// Auth: Bearer sk_test_xxx
+pub struct ChargeNamespace(pub(crate) Arc<Inner>);
 
 impl ChargeNamespace {
-    pub(crate) fn new(inner: Arc<ClientInner>) -> Self {
-        Self { inner }
-    }
-
-    /// Initiate a card charge.
+    /// Initiate a card charge via POST /charge.
     ///
-    /// Local Verve cards (5061, 5062, 5063, 6500, 6501):
-    ///   returns status "send_pin" → call submit_pin next
+    /// Local Ghana cards (Verve: 5061, 5062, 5063, 6500, 6501):
+    ///   returns status "send_pin" → call submit_pin
     ///
-    /// International Visa/Mastercard:
-    ///   returns status "open_url" → navigate to three_ds_url
+    /// International cards (Visa 4xxx, Mastercard 5xxx):
+    ///   returns status "open_url" + url → checkout navigates to url
     pub async fn card(&self, input: ChargeCardInput) -> Result<ChargeFlowResponse, PayfakeError> {
-        if input.access_code.is_none() && input.reference.is_none() {
-            return Err(PayfakeError::InvalidInput(
-                "either access_code or reference is required".to_string(),
-            ));
-        }
-        self.inner.request::<_, ChargeFlowResponse>(
-            Method::POST,
-            "/api/v1/charge/card",
-            Some(&input),
-            None,
-        ).await
+        self.0.do_sk(Method::POST, "/charge", Some(&input)).await
     }
 
-    /// Initiate a mobile money charge.
-    /// Always returns status "send_otp" first, customer verifies phone.
-    /// After OTP returns "pay_offline", poll transaction for webhook outcome.
+    /// Initiate a MoMo charge via POST /charge.
+    /// Returns status "send_otp" → call submit_otp.
+    /// After OTP returns "pay_offline" → poll transaction.public_verify.
     pub async fn mobile_money(
         &self,
         input: ChargeMomoInput,
     ) -> Result<ChargeFlowResponse, PayfakeError> {
-        if input.access_code.is_none() && input.reference.is_none() {
-            return Err(PayfakeError::InvalidInput(
-                "either access_code or reference is required".to_string(),
-            ));
-        }
-        self.inner.request::<_, ChargeFlowResponse>(
-            Method::POST,
-            "/api/v1/charge/mobile_money",
-            Some(&input),
-            None,
-        ).await
+        self.0.do_sk(Method::POST, "/charge", Some(&input)).await
     }
 
-    /// Initiate a bank transfer charge.
-    /// Returns status "send_birthday", customer enters DOB first.
-    pub async fn bank(
-        &self,
-        input: ChargeBankInput,
-    ) -> Result<ChargeFlowResponse, PayfakeError> {
-        if input.access_code.is_none() && input.reference.is_none() {
-            return Err(PayfakeError::InvalidInput(
-                "either access_code or reference is required".to_string(),
-            ));
-        }
-        self.inner.request::<_, ChargeFlowResponse>(
-            Method::POST,
-            "/api/v1/charge/bank",
-            Some(&input),
-            None,
-        ).await
+    /// Initiate a bank transfer charge via POST /charge.
+    /// Returns status "send_birthday" → call submit_birthday.
+    pub async fn bank(&self, input: ChargeBankInput) -> Result<ChargeFlowResponse, PayfakeError> {
+        self.0.do_sk(Method::POST, "/charge", Some(&input)).await
     }
 
     /// Submit card PIN after status "send_pin".
-    /// Returns status "send_otp", OTP sent to registered phone.
-    /// Read OTP from client.control.get_otp_logs(token, Some(reference)).
+    /// Returns status "send_otp" — OTP sent to registered phone.
+    /// Read OTP from control.get_otp_logs() during testing.
     pub async fn submit_pin(
         &self,
         input: SubmitPINInput,
     ) -> Result<ChargeFlowResponse, PayfakeError> {
-        self.inner.request::<_, ChargeFlowResponse>(
-            Method::POST,
-            "/api/v1/charge/submit_pin",
-            Some(&input),
-            None,
-        ).await
+        self.0
+            .do_sk(Method::POST, "/charge/submit_pin", Some(&input))
+            .await
     }
 
     /// Submit OTP after status "send_otp".
     /// Card/bank: returns "success" or "failed".
-    /// MoMo: returns "pay_offline", poll transaction for final outcome.
+    /// MoMo: returns "pay_offline" — poll transaction.public_verify.
     pub async fn submit_otp(
         &self,
         input: SubmitOTPInput,
     ) -> Result<ChargeFlowResponse, PayfakeError> {
-        self.inner.request::<_, ChargeFlowResponse>(
-            Method::POST,
-            "/api/v1/charge/submit_otp",
-            Some(&input),
-            None,
-        ).await
+        self.0
+            .do_sk(Method::POST, "/charge/submit_otp", Some(&input))
+            .await
     }
 
     /// Submit date of birth after status "send_birthday".
@@ -117,12 +72,9 @@ impl ChargeNamespace {
         &self,
         input: SubmitBirthdayInput,
     ) -> Result<ChargeFlowResponse, PayfakeError> {
-        self.inner.request::<_, ChargeFlowResponse>(
-            Method::POST,
-            "/api/v1/charge/submit_birthday",
-            Some(&input),
-            None,
-        ).await
+        self.0
+            .do_sk(Method::POST, "/charge/submit_birthday", Some(&input))
+            .await
     }
 
     /// Submit billing address after status "send_address".
@@ -131,53 +83,36 @@ impl ChargeNamespace {
         &self,
         input: SubmitAddressInput,
     ) -> Result<ChargeFlowResponse, PayfakeError> {
-        self.inner.request::<_, ChargeFlowResponse>(
-            Method::POST,
-            "/api/v1/charge/submit_address",
-            Some(&input),
-            None,
-        ).await
+        self.0
+            .do_sk(Method::POST, "/charge/submit_address", Some(&input))
+            .await
     }
 
-    /// Request a new OTP when the customer hasn't received one.
-    /// Invalidates the previous OTP. Returns "send_otp" with fresh OTP.
-    /// Read new OTP from client.control.get_otp_logs(token, Some(reference)).
+    /// Request a fresh OTP when the customer hasn't received one.
+    /// Invalidates the previous OTP. Returns status "send_otp".
     pub async fn resend_otp(
         &self,
         input: ResendOTPInput,
     ) -> Result<ChargeFlowResponse, PayfakeError> {
-        self.inner.request::<_, ChargeFlowResponse>(
-            Method::POST,
-            "/api/v1/charge/resend_otp",
-            Some(&input),
-            None,
-        ).await
-    }
-
-    /// Complete the simulated 3DS verification.
-    /// Called after the customer confirms on the checkout app's 3DS page.
-    /// Returns "success" or "failed" based on the scenario config.
-    pub async fn simulate_3ds(
-        &self,
-        reference: &str,
-    ) -> Result<ChargeFlowResponse, PayfakeError> {
-        let path = format!("/api/v1/public/simulate/3ds/{}", reference);
-        self.inner.request::<serde_json::Value, ChargeFlowResponse>(
-            Method::POST,
-            &path,
-            None,
-            None,
-        ).await
+        self.0
+            .do_sk(Method::POST, "/charge/resend_otp", Some(&input))
+            .await
     }
 
     /// Fetch the current state of a charge by transaction reference.
-    pub async fn fetch(&self, reference: &str) -> Result<ChargeData, PayfakeError> {
-        let path = format!("/api/v1/charge/{}", reference);
-        self.inner.request::<serde_json::Value, ChargeData>(
-            Method::GET,
-            &path,
-            None,
-            None,
-        ).await
+    pub async fn fetch(&self, reference: &str) -> Result<ChargeFlowResponse, PayfakeError> {
+        let path = format!("/charge/{}", reference);
+        self.0
+            .do_sk::<serde_json::Value, _>(Method::GET, &path, None)
+            .await
+    }
+
+    /// Complete the simulated 3DS verification.
+    /// Called by the checkout app after the customer confirms on the 3DS page.
+    pub async fn simulate_3ds(&self, reference: &str) -> Result<ChargeFlowResponse, PayfakeError> {
+        let path = format!("/api/v1/public/simulate/3ds/{}", reference);
+        self.0
+            .do_public::<serde_json::Value, _>(Method::POST, &path, None)
+            .await
     }
 }

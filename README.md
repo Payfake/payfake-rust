@@ -1,172 +1,217 @@
-# payfake-rust
+# payfake
 
-Official Rust SDK for [Payfake API](https://github.com/payfake/payfake-api), a self-hostable African payment simulator that mirrors the Paystack API exactly. Test every payment scenario without touching real money.
-
-## Installation
-
-Add to your `Cargo.toml`:
+Official Rust SDK for [Payfake](https://payfake.co) — a Paystack-compatible payment
+simulator for African developers.
 
 ```toml
 [dependencies]
-payfake = { git = "https://github.com/payfake/payfake-rust" }
+payfake = "1.0"
 tokio = { version = "1", features = ["full"] }
 ```
+
+---
 
 ## Quick Start
 
 ```rust
 use payfake::{Client, Config};
-use payfake::types::{InitializeInput, ChargeCardInput};
-use payfake::errors::codes;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Client::new(Config {
-        secret_key: "sk_test_xxx".to_string(),
-        base_url: None,       // defaults to http://localhost:8080
-        timeout_secs: None,   // defaults to 30 seconds
-    });
+let client = Client::new(Config {
+    secret_key: "sk_test_xxx".to_string(),
+    base_url:   None,   // defaults to https://api.payfake.co
+    timeout:    None,
+});
 
-    // Initialize a transaction
-    let tx = client.transaction.initialize(InitializeInput {
-        email: "customer@example.com".to_string(),
-        amount: 10000, // GHS 100.00 — amounts in smallest unit (pesewas)
-        currency: Some("GHS".to_string()),
-        ..Default::default()
-    }).await?;
-
-    println!("Access code: {}", tx.access_code);
-    println!("Auth URL: {}", tx.authorization_url);
-
-    // Charge a card
-    let charge = client.charge.card(ChargeCardInput {
-        access_code: Some(tx.access_code),
-        card_number: "4111111111111111".to_string(),
-        card_expiry: "12/26".to_string(),
-        cvv: "123".to_string(),
-        email: "customer@example.com".to_string(),
-        ..Default::default()
-    }).await?;
-
-    println!("Status: {}", charge.transaction.status);
-
-    // Verify the transaction
-    let verified = client.transaction.verify(&tx.reference).await?;
-    println!("Verified: {}", verified.status);
-
-    Ok(())
-}
+// Self-hosted:
+let client = Client::new(Config {
+    secret_key: "sk_test_xxx".to_string(),
+    base_url:   Some("http://localhost:8080".to_string()),
+    timeout:    None,
+});
 ```
 
-## Namespaces
-
-| Namespace | Access | Description |
-|-----------|--------|-------------|
-| `client.auth` | Public + JWT | Register, login, key management |
-| `client.transaction` | Secret key | Initialize, verify, list, refund |
-| `client.charge` | Secret key | Card, mobile money, bank transfer |
-| `client.customer` | Secret key | Create, list, fetch, update |
-| `client.control` | JWT | Scenarios, webhooks, logs, force outcomes |
-
-## Error Handling
-
-Every failed API call returns `Err(PayfakeError)`. Use pattern matching
-for programmatic handling, idiomatic Rust, no exceptions:
+Change one config value to switch to real Paystack:
 
 ```rust
-use payfake::errors::codes;
-
-match client.transaction.initialize(input).await {
-    Ok(tx) => println!("Initialized: {}", tx.reference),
-    Err(e) if e.is_code(codes::REFERENCE_TAKEN) => {
-        // duplicate reference, verify the existing transaction
-        let tx = client.transaction.verify(&reference).await?;
-    }
-    Err(e) if e.is_code(codes::INVALID_AMOUNT) => {
-        eprintln!("Amount must be greater than zero");
-    }
-    Err(e) => return Err(e.into()),
-}
+// Development
+let client = Client::new(Config {
+    secret_key: std::env::var("PAYSTACK_SECRET_KEY").unwrap(),
+    base_url:   Some(std::env::var("PAYSTACK_BASE_URL").unwrap()),
+    timeout:    None,
+});
 ```
 
-`PayfakeError` variants:
+---
+
+## Full Card Flow
 
 ```rust
-PayfakeError::Api {
-    code,        // Payfake response code, stable, use for matching
-    message,     // Human-readable, don't parse programmatically
-    fields,      // Vec<ApiErrorField>, field-level validation errors
-    http_status, // u16 HTTP status code
-}
-PayfakeError::Http(reqwest::Error)   // network error, timeout, DNS failure
-PayfakeError::Parse(serde_json::Error) // unexpected response format
-PayfakeError::InvalidInput(String)   // missing required SDK input
-```
+use payfake::types::*;
 
-## Scenario Control
-
-```rust
-// Login first to get a JWT
-let resp = client.auth.login(LoginInput {
-    email: "dev@acme.com".to_string(),
-    password: "secret123".to_string(),
-}).await?;
-let token = resp.token;
-
-// 30% failure rate with 1 second delay
-client.control.update_scenario(&token, UpdateScenarioInput {
-    failure_rate: Some(0.3),
-    delay_ms: Some(1000),
+// Initialize
+let tx = client.transaction.initialize(InitializeInput {
+    email:  "customer@example.com".to_string(),
+    amount: 10000,  // GHS 100.00 — amounts in pesewas
     ..Default::default()
 }).await?;
 
-// Force a specific transaction to fail
-client.control.force_transaction(&token, &reference, ForceTransactionInput {
-    status: "failed".to_string(),
-    error_code: Some("CHARGE_INSUFFICIENT_FUNDS".to_string()),
+// Charge — local Verve card (5061xxxxxxxxxxxxxxxxx)
+let step1 = client.charge.card(ChargeCardInput {
+    email:       "customer@example.com".to_string(),
+    access_code: Some(tx.access_code.clone()),
+    card: CardDetails {
+        number:       "5061000000000000".to_string(),
+        cvv:          "123".to_string(),
+        expiry_month: "12".to_string(),
+        expiry_year:  "2026".to_string(),
+    },
+    ..Default::default()
 }).await?;
+// step1.status == "send_pin"
 
-// Reset everything back to defaults
-client.control.reset_scenario(&token).await?;
+// Submit PIN
+let step2 = client.charge.submit_pin(SubmitPINInput {
+    reference: tx.reference.clone(),
+    pin:       "1234".to_string(),
+}).await?;
+// step2.status == "send_otp"
+
+// Get OTP from logs (no real phone needed)
+let logs = client.control.get_otp_logs(&token, Some(&tx.reference), 1, 10).await?;
+let otp  = logs[0].otp_code.clone();
+
+// Submit OTP
+let step3 = client.charge.submit_otp(SubmitOTPInput {
+    reference: tx.reference.clone(),
+    otp,
+}).await?;
+// step3.status == "success"
+
+// Verify
+let verified = client.transaction.verify(&tx.reference).await?;
+// verified.status == "success"
+// verified.gateway_response == "Approved"
+// verified.authorization.unwrap().authorization_code
 ```
+
+---
+
+## Charge Flow Status Reference
+
+| Status | Meaning | Next Call |
+|--------|---------|-----------|
+| `send_pin` | Enter card PIN | `charge.submit_pin` |
+| `send_otp` | Enter OTP | `charge.submit_otp` |
+| `send_birthday` | Enter date of birth | `charge.submit_birthday` |
+| `send_address` | Enter billing address | `charge.submit_address` |
+| `open_url` | Complete 3DS — open `url` field | Navigate checkout to `url` |
+| `pay_offline` | Approve USSD prompt | Poll `transaction.public_verify` |
+| `success` | Payment complete | Call `transaction.verify` |
+| `failed` | Payment declined | Read `gateway_response` |
+
+---
 
 ## Mobile Money
 
-MoMo charges are async, always return `pending` immediately.
-The final outcome arrives via webhook after the simulated delay:
+```rust
+let step1 = client.charge.mobile_money(ChargeMomoInput {
+    email:       "customer@example.com".to_string(),
+    access_code: Some(tx.access_code.clone()),
+    mobile_money: MomoDetails {
+        phone:    "+233241234567".to_string(),
+        provider: "mtn".to_string(),  // mtn | vodafone | airteltigo
+    },
+    ..Default::default()
+}).await?;
+// step1.status == "send_otp"
+
+let logs  = client.control.get_otp_logs(&token, Some(&tx.reference), 1, 10).await?;
+let step2 = client.charge.submit_otp(SubmitOTPInput {
+    reference: tx.reference.clone(),
+    otp:       logs[0].otp_code.clone(),
+}).await?;
+// step2.status == "pay_offline"
+
+// Poll every 3 seconds
+loop {
+    let result = client.transaction.public_verify(&tx.reference).await?;
+    if result.status == "success" || result.status == "failed" { break; }
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+}
+```
+
+---
+
+## Scenario Testing
 
 ```rust
-let charge = client.charge.mobile_money(ChargeMomoInput {
-    access_code: Some(tx.access_code),
-    phone: "+233241234567".to_string(),
-    provider: "mtn".to_string(), // mtn | vodafone | airteltigo
-    email: "customer@example.com".to_string(),
+use payfake::types::UpdateScenarioInput;
+
+// Login to get JWT
+let resp  = client.auth.login(LoginInput { email: "...", password: "..." }).await?;
+let token = resp.access_token;
+
+// Force failure
+client.control.update_scenario(&token, UpdateScenarioInput {
+    force_status: Some("failed".to_string()),
+    error_code:   Some("CHARGE_INSUFFICIENT_FUNDS".to_string()),
     ..Default::default()
 }).await?;
 
-// charge.transaction.status is always "pending" here
-// implement a webhook handler for the final outcome
+// Reset
+client.control.reset_scenario(&token).await?;
 ```
 
-## Partial Updates
+---
 
-Rust's `Option<T>` with `#[serde(skip_serializing_if = "Option::is_none")]`
-implements the partial-update pattern cleanly — fields you don't set
-are absent from the JSON body and the API leaves them unchanged:
+## Error Handling
 
 ```rust
-// Only update failure_rate, delay_ms and force_status stay as they are
-client.control.update_scenario(&token, UpdateScenarioInput {
-    failure_rate: Some(0.5),
-    ..Default::default() // all other fields are None → not sent
-}).await?;
+use payfake::{PayfakeError, codes};
+
+match client.charge.submit_otp(input).await {
+    Err(e) if e.is_code(codes::CHARGE_INVALID_OTP) => {
+        // OTP expired — resend
+        client.charge.resend_otp(ResendOTPInput {
+            reference: reference.to_string(),
+        }).await?;
+    }
+    Err(PayfakeError::Api { code, message, fields, http_status }) => {
+        eprintln!("code={} message={} status={}", code, message, http_status);
+        for f in &fields {
+            eprintln!("  {}: {} ({})", f.field, f.message, f.rule);
+        }
+    }
+    Err(e) => return Err(e.into()),
+    Ok(resp) => println!("status: {}", resp.status),
+}
 ```
 
-## Requirements
+---
 
-- Rust 1.75+
-- tokio async runtime
-- A running [Payfake API](https://github.com/payfake/payfake-api) server
+## Webhook Verification
+
+```rust
+use hmac::{Hmac, Mac};
+use sha2::Sha512;
+use hex;
+
+fn verify_webhook(body: &[u8], signature: &str, secret_key: &str) -> bool {
+    let mut mac = Hmac::<Sha512>::new_from_slice(secret_key.as_bytes()).unwrap();
+    mac.update(body);
+    let expected = hex::encode(mac.finalize().into_bytes());
+    expected == signature
+}
+```
+
+Add to `Cargo.toml`:
+```toml
+hmac = "0.12"
+sha2 = "0.10"
+hex  = "0.4"
+```
+
+---
 
 ## License
 

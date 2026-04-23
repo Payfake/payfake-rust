@@ -1,119 +1,97 @@
-
-
-use serde::Deserialize;
 use thiserror::Error;
 
-/// A single field-level error returned by the Payfake API.
-/// Populated when a request fails validation, points to the
-/// exact field that caused the problem and explains why.
-#[derive(Debug, Clone, Deserialize)]
-pub struct ApiErrorField {
-    pub field: String,
+/// A single field-level validation error from the API.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ErrorField {
+    pub field:   String,
+    pub rule:    String,
     pub message: String,
 }
 
-/// PayfakeError is returned by every SDK method on failure.
+/// Every SDK method returns this on failure.
+/// Use `is_code()` for programmatic error handling — never match on message.
 ///
-/// We use thiserror's #[derive(Error)] to generate the std::error::Error
-/// implementation automatically, no manual impl blocks needed.
-///
-/// The #[error("...")] attribute defines what the Display impl shows
-/// when you print the error or use it in format strings.
-///
-/// Use pattern matching on the variants for programmatic error handling:
-///
+/// # Example
 /// ```rust
-/// match err {
-///     PayfakeError::Api { code, .. } if code == "AUTH_EMAIL_TAKEN" => {
-///         // handle duplicate email
+/// match client.charge.submit_otp(input).await {
+///     Err(e) if e.is_code(codes::CHARGE_INVALID_OTP) => {
+///         // resend OTP
 ///     }
-///     PayfakeError::Api { code, .. } if code == "CHARGE_FAILED" => {
-///         // handle charge failure
-///     }
-///     _ => return Err(err),
+///     Err(e) => eprintln!("{}", e),
+///     Ok(resp) => { /* success */ }
 /// }
 /// ```
 #[derive(Debug, Error)]
 pub enum PayfakeError {
-    /// The API returned an error response.
-    /// code is the Payfake response code, stable across API versions.
-    /// message is human-readable, don't parse it programmatically.
-    /// fields contains field-level validation errors if any.
-    /// http_status is the HTTP status code of the response.
-    #[error("payfake [{code}] {message}")]
+    #[error("PayfakeError [{code}] {message}")]
     Api {
+        /// X-Payfake-Code header value — use this for programmatic handling.
         code: String,
+        /// Human-readable error message — log this, don't match on it.
         message: String,
-        fields: Vec<ApiErrorField>,
+        /// Field-level validation errors (populated when code is VALIDATION_ERROR).
+        fields: Vec<ErrorField>,
+        /// HTTP status code of the failed response.
         http_status: u16,
     },
-
-    /// The HTTP request itself failed, network error, timeout, DNS failure etc.
-    /// This wraps reqwest's error type. The original error is available via
-    /// the source() method from std::error::Error.
-    #[error("HTTP request failed: {0}")]
+    #[error("HTTP error: {0}")]
     Http(#[from] reqwest::Error),
-
-    /// The response body could not be parsed as JSON.
-    /// This usually means the server returned something unexpected
-    /// a proxy error page, a plain text error, or a server crash response.
-    #[error("Failed to parse response: {0}")]
-    Parse(#[from] serde_json::Error),
-
-    /// A required field was missing in the SDK call.
-    /// Either access_code or reference must be provided for charge calls.
-    #[error("Invalid input: {0}")]
-    InvalidInput(String),
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
 }
 
 impl PayfakeError {
-    /// Check if this error matches a specific Payfake response code.
-    ///
-    /// ```rust
-    /// if err.is_code("AUTH_EMAIL_TAKEN") {
-    ///     // handle duplicate email
-    /// }
-    /// ```
+    /// Returns true if this is an Api error with the given code.
     pub fn is_code(&self, code: &str) -> bool {
-        match self {
-            PayfakeError::Api { code: c, .. } => c == code,
-            _ => false,
-        }
+        matches!(self, PayfakeError::Api { code: c, .. } if c == code)
     }
 
-    /// Extract the response code if this is an API error.
-    /// Returns None for network errors and parse errors.
+    /// Returns the error code if this is an Api error.
     pub fn code(&self) -> Option<&str> {
         match self {
-            PayfakeError::Api { code, .. } => Some(code),
+            PayfakeError::Api { code, .. } => Some(code.as_str()),
             _ => None,
-        }
-    }
-
-    /// Extract field-level validation errors if any.
-    /// Returns an empty slice for non-validation errors.
-    pub fn fields(&self) -> &[ApiErrorField] {
-        match self {
-            PayfakeError::Api { fields, .. } => fields,
-            _ => &[],
         }
     }
 }
 
-/// Common error code constants, use these instead of raw strings
-/// so your code stays correct if codes ever get renamed.
+/// Response code constants — use these instead of raw strings.
 pub mod codes {
-    pub const EMAIL_TAKEN:            &str = "AUTH_EMAIL_TAKEN";
-    pub const INVALID_CREDENTIALS:    &str = "AUTH_INVALID_CREDENTIALS";
-    pub const UNAUTHORIZED:           &str = "AUTH_UNAUTHORIZED";
-    pub const TOKEN_EXPIRED:          &str = "AUTH_TOKEN_EXPIRED";
+    // Auth
+    pub const EMAIL_TAKEN:          &str = "AUTH_EMAIL_TAKEN";
+    pub const INVALID_CREDENTIALS:  &str = "AUTH_INVALID_CREDENTIALS";
+    pub const UNAUTHORIZED:         &str = "AUTH_UNAUTHORIZED";
+    pub const TOKEN_EXPIRED:        &str = "AUTH_TOKEN_EXPIRED";
+    pub const TOKEN_INVALID:        &str = "AUTH_TOKEN_INVALID";
+
+    // Transaction
     pub const TRANSACTION_NOT_FOUND:  &str = "TRANSACTION_NOT_FOUND";
     pub const REFERENCE_TAKEN:        &str = "TRANSACTION_REFERENCE_TAKEN";
     pub const INVALID_AMOUNT:         &str = "TRANSACTION_INVALID_AMOUNT";
-    pub const CHARGE_FAILED:          &str = "CHARGE_FAILED";
-    pub const CHARGE_PENDING:         &str = "CHARGE_PENDING";
-    pub const CUSTOMER_NOT_FOUND:     &str = "CUSTOMER_NOT_FOUND";
-    pub const CUSTOMER_EMAIL_TAKEN:   &str = "CUSTOMER_EMAIL_TAKEN";
-    pub const VALIDATION_ERROR:       &str = "VALIDATION_ERROR";
-    pub const INTERNAL_ERROR:         &str = "INTERNAL_ERROR";
+    pub const ALREADY_VERIFIED:       &str = "TRANSACTION_ALREADY_VERIFIED";
+
+    // Charge
+    pub const CHARGE_FAILED:              &str = "CHARGE_FAILED";
+    pub const CHARGE_SUCCESSFUL:          &str = "CHARGE_SUCCESSFUL";
+    pub const CHARGE_SEND_PIN:            &str = "CHARGE_SEND_PIN";
+    pub const CHARGE_SEND_OTP:            &str = "CHARGE_SEND_OTP";
+    pub const CHARGE_SEND_BIRTHDAY:       &str = "CHARGE_SEND_BIRTHDAY";
+    pub const CHARGE_SEND_ADDRESS:        &str = "CHARGE_SEND_ADDRESS";
+    pub const CHARGE_OPEN_URL:            &str = "CHARGE_OPEN_URL";
+    pub const CHARGE_PAY_OFFLINE:         &str = "CHARGE_PAY_OFFLINE";
+    pub const CHARGE_INVALID_OTP:         &str = "CHARGE_INVALID_OTP";
+    pub const INSUFFICIENT_FUNDS:         &str = "CHARGE_INSUFFICIENT_FUNDS";
+    pub const DO_NOT_HONOR:               &str = "CHARGE_DO_NOT_HONOR";
+    pub const MOMO_TIMEOUT:               &str = "CHARGE_MOMO_TIMEOUT";
+    pub const MOMO_PROVIDER_UNAVAILABLE:  &str = "CHARGE_MOMO_PROVIDER_UNAVAILABLE";
+
+    // Customer
+    pub const CUSTOMER_NOT_FOUND:   &str = "CUSTOMER_NOT_FOUND";
+    pub const CUSTOMER_EMAIL_TAKEN: &str = "CUSTOMER_EMAIL_TAKEN";
+
+    // Generic
+    pub const VALIDATION_ERROR: &str = "VALIDATION_ERROR";
+    pub const INTERNAL_ERROR:   &str = "INTERNAL_ERROR";
+    pub const NOT_FOUND:        &str = "NOT_FOUND";
+    pub const RATE_LIMITED:     &str = "RATE_LIMIT_EXCEEDED";
 }

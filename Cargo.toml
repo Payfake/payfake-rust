@@ -1,39 +1,18 @@
 [package]
 name = "payfake"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
-description = "Rust SDK for Payfake, African payment simulator"
+description = "Official Rust SDK for Payfake — Paystack-compatible payment simulator"
 license = "MIT"
 repository = "https://github.com/payfake/payfake-rust"
-
-# Only the library target, no binary.
-[lib]
-name = "payfake"
-path = "src/lib.rs"
-
-[[example]]
-name = "basic"
-path = "examples/basic.rs"
+keywords = ["payfake", "paystack", "payments", "ghana", "africa"]
 
 [dependencies]
-# reqwest is the de-facto HTTP client in the Rust ecosystem.
-# We enable the json feature so it can serialize/deserialize
-# directly to/from serde types without manual conversion.
-# rustls-tls uses a pure-Rust TLS implementation, no OpenSSL
-# dependency which makes cross-compilation much easier.
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
-
-# serde is Rust's serialization framework. derive gives us
-# #[derive(Serialize, Deserialize)] macros on our types.
-# serde_json handles JSON specifically.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-
-# tokio is the async runtime. We need the full feature set for
-# the example binary, library code only uses tokio in tests.
+thiserror = "1"
 tokio = { version = "1", features = ["full"] }
 
-# thiserror generates boilerplate for custom error types via derive macros.
-# It's the standard approach for library errors in Rust
-# much cleaner than implementing std::error::Error manually.
-thiserror = "1"
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
