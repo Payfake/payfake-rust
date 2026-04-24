@@ -6,7 +6,7 @@ use std::time::Duration;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::new(Config {
         secret_key: "sk_test_your_key_here".to_string(),
-        base_url: Some("https://api.payfake.co".to_string()),
+        base_url: Some("http://localhost:8080".to_string()),
         timeout: None,
     });
 
@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let authed = Client::new(Config {
         secret_key: keys.secret_key.clone(),
-        base_url: Some("https://api.payfake.co".to_string()),
+        base_url: Some("http://localhost:8080".to_string()),
         timeout: None,
     });
 
@@ -69,7 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .charge
         .card(ChargeCardInput {
             email: "customer@example.com".to_string(),
-            access_code: Some(tx.access_code.clone()),
+            reference: Some(tx.reference.clone()),
             card: CardDetails {
                 number: "5061000000000000".to_string(),
                 cvv: "123".to_string(),
@@ -134,7 +134,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .charge
         .mobile_money(ChargeMomoInput {
             email: "momo@example.com".to_string(),
-            access_code: Some(tx2.access_code.clone()),
+            reference: Some(tx2.reference.clone()),
             mobile_money: MomoDetails {
                 phone: "+233241234567".to_string(),
                 provider: "mtn".to_string(),
@@ -163,7 +163,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Poll until resolved
     println!("Polling for resolution...");
     for i in 0..10 {
-        let result = authed.transaction.public_verify(&tx2.reference).await?;
+        let result = authed
+            .transaction
+            .public_verify(&tx2.reference, &tx2.access_code)
+            .await?;
         let flow = result
             .charge
             .as_ref()
@@ -206,7 +209,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .charge
         .card(ChargeCardInput {
             email: "fail@example.com".to_string(),
-            access_code: Some(tx3.access_code.clone()),
+            reference: Some(tx3.reference.clone()),
             card: CardDetails {
                 number: "5061000000000000".to_string(),
                 cvv: "123".to_string(),

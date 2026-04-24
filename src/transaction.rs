@@ -92,8 +92,13 @@ impl TransactionNamespace {
     pub async fn public_verify(
         &self,
         reference: &str,
+        access_code: &str,
     ) -> Result<PublicVerifyResponse, PayfakeError> {
-        let path = format!("/api/v1/public/transaction/verify/{}", reference);
+        let path = format!(
+            "/api/v1/public/transaction/verify/{}?access_code={}",
+            reference, access_code
+        );
+
         self.0
             .do_public::<serde_json::Value, _>(Method::GET, &path, None)
             .await

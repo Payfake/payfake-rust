@@ -251,8 +251,6 @@ pub struct ChargeCardInput {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub amount: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub access_code: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub reference: Option<String>,
     pub card: CardDetails,
 }
@@ -263,8 +261,6 @@ pub struct ChargeMomoInput {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub amount: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub access_code: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub reference: Option<String>,
     pub mobile_money: MomoDetails,
 }
@@ -274,8 +270,6 @@ pub struct ChargeBankInput {
     pub email: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub amount: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub access_code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reference: Option<String>,
     pub bank: BankDetails,
